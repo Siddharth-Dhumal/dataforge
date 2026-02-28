@@ -1,0 +1,9 @@
+streamlit
+plotly
+databricks-sdk
+databricks-sql-connector
+anthropic
+jinja2
+pyyaml
+pandas
+numpy

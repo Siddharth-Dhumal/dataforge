@@ -1,0 +1,7 @@
+command: ["streamlit", "run", "app.py", "--server.port", "8000"]
+env:
+  - name: ANTHROPIC_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: dataforge-secrets
+        key: anthropic_api_key
