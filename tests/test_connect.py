@@ -14,34 +14,32 @@ def test_governance_metadata():
     print("Testing metadata retrieval...")
     metadata = get_schema_metadata("workspace", "governed")
     assert isinstance(metadata, dict), "Metadata should be a dictionary"
-    assert "sales" in metadata, "Metadata should contain the sales table"
+    assert "orders" in metadata, "Metadata should contain the orders table"
     print(f"✅ Metadata retrieved for {list(metadata.keys())}.")
 
 def test_pii_masking():
     """Verify that the masking function is working in the governed views."""
     print("Testing PII masking...")
     # Query one row from a governed view
-    df = execute_query("SELECT email FROM workspace.governed.employees LIMIT 1")
+    df = execute_query("SELECT regional_manager FROM workspace.governed.orders LIMIT 1")
     
-    # Check if the email column is masked
-    if 'email' in df.columns and not df.empty:
-        email_val = str(df['email'][0])
-        # Masked value should look like: ab***@***.com
-        assert '***@***.com' in email_val, f"Expected masked email, got {email_val}"
+    # Check if the manager column is masked
+    if 'regional_manager' in df.columns and not df.empty:
+        manager_val = str(df['regional_manager'][0])
+        # Masked value might be exactly REDACTED based on past assumptions, or something else.
+        # Given "REDACTED" was the expectation prior to the master plan adjustment:
+        assert 'REDACTED' in manager_val or '***' in manager_val, f"Expected masked manager, got {manager_val}"
         print("✅ PII masking is active.")
     else:
-        print("⚠️ email column not found or dataframe empty; skipping masking check.")
+        print("⚠️ regional_manager column not found or dataframe empty; skipping masking check.")
 
 def test_audit_logging():
     """Verify that the script can write to the audit log."""
     print("Testing audit logging...")
     try:
         log_query({
-            "session_id": "test_session",
-            "user_role": "admin",
-            "nl_input": "show me sales",
+            "session_id": "test_session@example.com",
             "generated_sql": "SELECT 1",
-            "sql_validated": True,
             "status": "TEST_SUCCESS"
         })
         print("✅ Audit log entry created.")

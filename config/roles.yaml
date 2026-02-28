@@ -1,7 +1,7 @@
 viewer:
   allowed_tables:
-    - governed.sales
-    - governed.products
+    - governed.inventory
+    - governed.orders
   allowed_operations:
     - SELECT
   max_rows: 1000
@@ -9,11 +9,9 @@ viewer:
 
 analyst:
   allowed_tables:
-    - governed.sales
-    - governed.customers
-    - governed.products
     - governed.inventory
-    - governed.shipments
+    - governed.orders
+    - governed.shipping
   allowed_operations:
     - SELECT
   max_rows: 10000

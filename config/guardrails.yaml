@@ -1,10 +1,7 @@
 allowed_tables:
-  - governed.sales
-  - governed.customers
-  - governed.products
-  - governed.employees
   - governed.inventory
-  - governed.shipments
+  - governed.orders
+  - governed.shipping
 
 banned_sql_patterns:
   - "DROP"
@@ -19,9 +16,7 @@ banned_sql_patterns:
 max_rows_returned: 10000
 
 pii_columns:
-  - email
-  - salary
-  - ssn
+  - regional_manager
 
 allowed_chart_types:
   - bar

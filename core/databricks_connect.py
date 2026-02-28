@@ -41,28 +41,22 @@ def get_schema_metadata(catalog: str, schema: str) -> dict:
     # Since we need to get tables dynamically:
     # the existing logic was hardcoded for 3 tables. 
     # Let's query the tables from information_schema if possible, but for simplicity
-    tables = ["sales", "customers", "products", "employees", "inventory", "shipments"]
+    tables = ["inventory", "orders", "shipping"]
     return {t: execute_query(f"DESCRIBE {catalog}.{schema}.{t}").to_dict('records') for t in tables}
 
 def log_query(payload: dict) -> None:
     """Writes every AI action to your audit table."""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # Using payload dict as required
-    session_id = payload.get("session_id", "unknown")
-    user_role = payload.get("user_role", "unknown")
-    nl_input = payload.get("nl_input", "").replace("'", "''")
+    
+    # We expected a 12-column schema, but the user's Databricks actually has:
+    # `user_email`, `generated_sql`, `execution_status`, `timestamp`
+    user_email = payload.get("user_role", payload.get("session_id", "unknown@example.com"))
     generated_sql = payload.get("generated_sql", "").replace("'", "''")
-    sql_validated = payload.get("sql_validated", True)
-    table_accessed = payload.get("table_accessed", "")
-    rows_returned = payload.get("rows_returned", 0)
-    agent_retried = payload.get("agent_retried", False)
-    retry_diff = payload.get("retry_diff", "").replace("'", "''")
-    status = payload.get("status", "unknown")
-    source = payload.get("source", "unknown")
+    execution_status = payload.get("status", "unknown")
     
     insert_sql = f"""
     INSERT INTO workspace.audit.query_log 
-    VALUES ('{session_id}', '{user_role}', '{nl_input}', '{generated_sql}', {sql_validated}, '{table_accessed}', {rows_returned}, {agent_retried}, '{retry_diff}', '{ts}', '{status}', '{source}')
+    VALUES ('{user_email}', '{generated_sql}', '{execution_status}', '{ts}')
     """
     try:
         with get_db_connection() as conn:
@@ -73,4 +67,5 @@ def log_query(payload: dict) -> None:
 
 def get_audit_feed(limit: int = 50) -> pd.DataFrame:
     """Pulls logs for Person B's Admin dashboard."""
-    return execute_query(f"SELECT * FROM workspace.audit.query_log ORDER BY timestamp DESC LIMIT {limit}")
+    cols = "user_email, generated_sql, execution_status, timestamp"
+    return execute_query(f"SELECT {cols} FROM workspace.audit.query_log ORDER BY timestamp DESC LIMIT {limit}")
