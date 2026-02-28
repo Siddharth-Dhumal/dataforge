@@ -60,7 +60,7 @@ with st.container(border=True):
     b1, b2, b3, b4 = st.columns([1.0, 1.0, 1.0, 1.0], gap="medium")
 
     with b1:
-        if st.button("Seed audit", key="seed_audit", width="stretch"):
+        if st.button("Seed audit", key="seed_audit", use_container_width=True):
             st.session_state.audit_events.extend(
                 [
                     {"ts": now_utc(), "event": "factory_generate", "status": "allowed", "note": "Generated spec (demo seed)."},
@@ -72,7 +72,7 @@ with st.container(border=True):
             st.rerun()
 
     with b2:
-        if st.button("Register app", key="register_app", width="stretch"):
+        if st.button("Register app", key="register_app", use_container_width=True):
             st.session_state.app_registry.append(
                 {
                     "ts": now_utc(),
@@ -100,7 +100,7 @@ with st.container(border=True):
             st.rerun()
 
     with b3:
-        if st.button("🔄 Fetch Live Audit", key="fetch_live_audit", width="stretch"):
+        if st.button("🔄 Fetch Live Audit", key="fetch_live_audit", use_container_width=True):
             real_audit = fetch_real_audit()
             if real_audit:
                 st.session_state.databricks_audit = real_audit
@@ -110,7 +110,7 @@ with st.container(border=True):
             st.rerun()
     
     with b4:
-        if st.button("Clear", key="clear_console", width="stretch"):
+        if st.button("Clear", key="clear_console", use_container_width=True):
             st.session_state.audit_events = []
             st.session_state.app_registry = []
             if "databricks_audit" in st.session_state:
@@ -123,7 +123,7 @@ if st.session_state.get("databricks_audit"):
     with st.container(border=True):
         st.subheader("🔴 Live Databricks Audit Log")
         st.caption("Real-time data from `workspace.audit.query_log`")
-        st.dataframe(st.session_state.databricks_audit, width="stretch")
+        st.dataframe(st.session_state.databricks_audit, use_container_width=True)
 
 # --- Local Audit ---
 with st.container(border=True):
@@ -152,9 +152,9 @@ with st.container(border=True):
         filtered.append(ev)
 
     if filtered:
-        st.dataframe(filtered, width="stretch")
+        st.dataframe(filtered, use_container_width=True)
     else:
-        st.dataframe([{"ts": "", "event": "", "status": "", "note": ""}], width="stretch")
+        st.dataframe([{"ts": "", "event": "", "status": "", "note": ""}], use_container_width=True)
 
 # --- Governance ---
 with st.container(border=True):
@@ -168,6 +168,6 @@ with st.container(border=True):
 with st.container(border=True):
     st.subheader("Registry")
     if st.session_state.app_registry:
-        st.dataframe(st.session_state.app_registry, width="stretch")
+        st.dataframe(st.session_state.app_registry, use_container_width=True)
     else:
         st.caption("No registered apps yet.")

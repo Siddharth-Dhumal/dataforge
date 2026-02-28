@@ -85,11 +85,11 @@ with mid:
     with st.container(border=True):
         c1, c2, c3 = st.columns(3, gap="medium")
         with c1:
-            go_suggestions = st.button("Open Suggestions", width="stretch", key="go_suggestions")
+            go_suggestions = st.button("Open Suggestions", use_container_width=True, key="go_suggestions")
         with c2:
-            go_factory = st.button("Open Factory", width="stretch", key="go_factory")
+            go_factory = st.button("Open Factory", use_container_width=True, key="go_factory")
         with c3:
-            go_dashboard = st.button("Open Dashboard", width="stretch", key="go_dashboard")
+            go_dashboard = st.button("Open Dashboard", use_container_width=True, key="go_dashboard")
 
 # Navigate
 if go_suggestions:

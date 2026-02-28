@@ -79,7 +79,7 @@ with st.container(border=True):
         key="selected_dataset",
     )
 
-    clicked = st.button("Generate Dashboard", key="generate_spec", width="stretch", type="primary")
+    clicked = st.button("Generate Dashboard", key="generate_spec", use_container_width=True, type="primary")
 
     if clicked:
         # Animated Factory Progress Feed

@@ -113,7 +113,7 @@ with st.container(border=True):
         st.slider("Row limit", 10, 500, value=50, step=10, key="dash_row_limit")
     with c3:
         st.write("")
-        if st.button("Refresh", key="refresh_dashboard", width="stretch"):
+        if st.button("Refresh", key="refresh_dashboard", use_container_width=True):
             st.session_state.dashboard_refresh_count += 1
             st.rerun()
 
