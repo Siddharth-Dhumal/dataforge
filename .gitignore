@@ -1,0 +1,35 @@
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# Virtual Environments
+venv/
+env/
+.venv/
+.env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project Specific
+data/backup/*.csv
+data/backup/*.json
+
+# Streamlit
+.streamlit/credentials.toml
+
+# macOS
+.DS_Store
