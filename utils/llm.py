@@ -1,11 +1,41 @@
+"""
+utils/llm.py — Universal LLM call wrapper.
+
+Every LLM call in this project uses call_claude() or call_claude_text().
+All agents import from here. Nobody writes their own API call.
+Nobody handles exceptions differently. Consistent behavior everywhere.
+
+API key from environment variable only (loaded from .env if needed).
+"""
 import anthropic
 import os
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_api_key = os.environ.get("ANTHROPIC_API_KEY", "dummy_key")
-client = anthropic.Anthropic(api_key=_api_key)
+# Lazy client initialization — ensures .env is loaded before creating client
+_client = None
+
+
+def _get_client() -> anthropic.Anthropic:
+    """Get or create the Anthropic client, loading .env if needed."""
+    global _client
+    if _client is None:
+        # Load .env if ANTHROPIC_API_KEY not already in environment
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            try:
+                from dotenv import load_dotenv
+                load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
+            except Exception:
+                pass
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY not set in environment or .env")
+
+        _client = anthropic.Anthropic(api_key=api_key)
+    return _client
 
 
 def call_claude(system: str, user_message: str, tool: dict) -> dict | None:
@@ -15,6 +45,7 @@ def call_claude(system: str, user_message: str, tool: dict) -> dict | None:
     Caller is responsible for handling None gracefully.
     """
     try:
+        client = _get_client()
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
@@ -42,6 +73,7 @@ def call_claude_text(
     Returns the text response string, or an error string on failure.
     """
     try:
+        client = _get_client()
         response = client.messages.create(
             model=model,
             max_tokens=2000,

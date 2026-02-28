@@ -21,6 +21,7 @@ def init_state() -> None:
         "chat_show_sql": True,
         "last_chat_sql": None,
         "last_chat_policy_note": None,
+        "force_chat_prompt": None,
         # Shared audit (stub for now; IT Console will read this later)
         "audit_events": [],
         # Suggestions page state

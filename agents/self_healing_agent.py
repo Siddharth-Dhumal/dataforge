@@ -1,159 +1,146 @@
-from agents.sql_generator import generate_sql_query_dbcs
-from utils.query_validator import is_query_valid
-from utils.llm import call_claude_text as call_claude
+"""
+Agent 2 — Self-Healing Agent (agents/self_healing_agent.py)
+
+Wraps both Genie API (chat path) and Agent 1 (factory path).
+The only place SQL executes.
+
+MAX_RETRIES = 1  — NEVER change this constant during the hackathon
+
+Flow:
+  1. Get SQL from Genie or Agent 1
+  2. Validate through query_validator.py
+  3. Execute via execute_query() or direct connection
+  4. Success → return DataFrame, log status=success
+  5. Failure (SQL error) → build retry prompt with original SQL + error message + schema
+     → call Anthropic (tool use) → validate again → execute again
+  6. Retry success → return DataFrame, log agent_retried=True,
+     log difflib.unified_diff() output in retry_diff
+  7. Retry fail OR cannot_answer=True → return friendly error + 3 example buttons.
+     Log status=failed.
+
+Hard rules:
+  - MAX_RETRIES = 1 is a named constant. Never a magic number. Never changed.
+  - All exceptions caught. Nothing propagates to the UI.
+  - The diff logged on retry uses difflib.unified_diff()
+"""
+from __future__ import annotations
+
 import os
-from databricks import sql
-import re
+import logging
+from decimal import Decimal
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
-MAX_RETRIES = 1
+logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 1  # NEVER change this constant during the hackathon
 
 
-def get_database_schema_context(catalog_name: str, schema_name: str) -> str:
+def _ensure_env():
+    """Load .env if DATABRICKS_HOST not already set."""
+    if not os.environ.get("DATABRICKS_HOST"):
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
+        except Exception:
+            pass
+
+
+def _clean_value(v):
+    """Convert Decimal to float for JSON serialization."""
+    return float(v) if isinstance(v, Decimal) else v
+
+
+def execute_sql(sql: str) -> Tuple[bool, List[Dict], str]:
     """
-    Fetches the full DDL (Create Table statements) for the tables.
-    This gives the LLM types, primary keys, and table comments.
+    Validate and execute SQL against Databricks.
+    Returns (success, rows, error_message).
+    All exceptions caught — nothing propagates to the UI.
+    """
+    _ensure_env()
+    host = os.environ.get("DATABRICKS_HOST", "")
+    http_path = os.environ.get("DATABRICKS_HTTP_PATH", "")
+    token = os.environ.get("DATABRICKS_TOKEN", "")
+
+    if not all([host, http_path, token]):
+        return False, [], "Missing Databricks credentials"
+
+    # Validate through query_validator.py first
+    try:
+        from utils.query_validator import validate_query
+        validated = validate_query(sql)
+    except Exception as e:
+        return False, [], f"Validation error: {e}"
+
+    # Execute
+    try:
+        from databricks import sql as dbsql
+        conn = dbsql.connect(server_hostname=host, http_path=http_path, access_token=token)
+        cur = conn.cursor()
+        cur.execute(validated)
+        if not cur.description:
+            cur.close()
+            conn.close()
+            return True, [], ""
+        cols = [d[0] for d in cur.description]
+        raw = cur.fetchall()
+        cur.close()
+        conn.close()
+        rows = [{c: _clean_value(v) for c, v in zip(cols, r)} for r in raw]
+        return True, rows, ""
+    except Exception as e:
+        return False, [], str(e)
+
+
+def self_heal(
+    original_sql: str,
+    error_msg: str,
+    nl_question: str,
+    *,
+    limit: int = 500,
+) -> Tuple[Optional[str], str, str]:
+    """
+    Agent 2: If the original SQL failed, retry once with error context.
+
+    Uses Anthropic tool use pattern via call_claude.
+
+    Returns:
+        (fixed_sql_or_none, reason, diff_text)
     """
     try:
-        from databricks.connect import DatabricksSession
-        spark = DatabricksSession.builder.serverless(True).getOrCreate()
-        
-        # 1. Get the list of tables in this schema
-        tables_df = spark.sql(f"SHOW TABLES IN {catalog_name}.{schema_name}").toPandas()
-        
-        if tables_df.empty:
-            return f"Error: No tables found in {catalog_name}.{schema_name}."
+        from utils.llm import call_claude
+        from agents.sql_generator import SQL_TOOL, SCHEMA_CONTEXT
+        from utils.diff_util import sql_diff
+    except ImportError as ie:
+        logger.warning(f"[Agent 2] Import error: {ie}")
+        return None, "Self-healing dependencies not available", ""
 
-        context = "Here is the schema DDL for the relevant tables in this database:\n\n"
-        
-        # 2. For the most relevant tables, get their 'SHOW CREATE TABLE' output
-        # We'll focus on these to keep the prompt size efficient
-        target_tables = ['orders', 'customer', 'lineitem', 'nation', 'region', 'supplier']
-        
-        for table_name in tables_df['tableName']:
-            if table_name in target_tables:
-                # This command returns the exact SQL used to create the table, including all metadata
-                ddl = spark.sql(f"SHOW CREATE TABLE {catalog_name}.{schema_name}.{table_name}").collect()[0][0]
-                context += f"-- Table structure for {table_name}:\n{ddl}\n\n"
-            
-        return context
-        
-    except Exception as e:
-        return f"Error fetching DDL: {str(e)}"
-
-
-import re
-
-def clean_sql(raw_sql: str) -> str:
-    """
-    Extracts ONLY the SQL query, handling conversational noise and 
-    nested backticks accurately.
-    """
-    if not raw_sql:
-        return ""
-
-    # 1. Targeted extraction for Markdown blocks
-    # This looks for ```sql ... ``` or just ``` ... ```
-    # It uses a non-greedy dot (.*?) to stop at the VERY FIRST closing backtick.
-    block_match = re.search(r"```(?:sql|SQL)?\s*(.*?)\s*```", raw_sql, re.DOTALL | re.IGNORECASE)
-    
-    if block_match:
-        sql = block_match.group(1).strip()
-    else:
-        # 2. Fallback: If no backticks, find the first occurrence of a SQL keyword 
-        # and capture until the end of that "thought" (usually a semicolon or double newline)
-        # We look for SELECT, WITH, or CREATE.
-        fallback_match = re.search(r"(\b(?:SELECT|WITH|CREATE|UPDATE|DELETE)\b.*)", raw_sql, re.IGNORECASE | re.DOTALL)
-        sql = fallback_match.group(1).strip() if fallback_match else raw_sql.strip()
-
-    # 3. Post-processing Cleanup
-    # Remove trailing semicolons (Databricks/Spark handles single queries better without them)
-    sql = re.sub(r';\s*$', '', sql)
-    
-    # Remove any line-level comments that might have been accidentally captured if the LLM 
-    # put them on the same line as the closing backticks
-    sql = sql.split("```")[0].strip()
-    
-    return sql
-    
-
-def generate_safe_sql(prompt: str, catalog_name: str, schema_name: str) -> dict:
-    """
-    Self-healing SQL generation with detailed debug tracing.
-    """
-    result = {
-        "sql": None,
-        "valid": False,
-        "source": "None",
-        "error": "None",
-        "retried": False,
-        "debug_trace": {} # We will store everything here
-    }
-
-    # 1. Fetch Schema
-    schema_context = get_database_schema_context(catalog_name, schema_name)
-    result["debug_trace"]["schema_used"] = schema_context
-    
-    if schema_context.startswith("Error"):
-        result["error"] = schema_context
-        return result
-
-    # 2. Try Databricks AI (Primary)
-    enriched_db_prompt = f"{schema_context}\n\nUser Request: {prompt}"
-
-    
-    result["debug_trace"]["dbcs_input"] = enriched_db_prompt
-    
-    # print(f"--- DBCS INPUT ---\n{enriched_db_prompt}")
-    
-    sql_candidate = generate_sql_query_dbcs(enriched_db_prompt)
-    #result["debug_trace"]["dbcs_output"] = sql_candidate
-    
-    # parse the response
-    sql_candidate = clean_sql(sql_candidate)
-    
-    #print(f"--- DBCS OUTPUT ---\n{sql_candidate}")
-
-    # 3. Validate
-    if is_query_valid(sql_candidate):
-        result["sql"] = sql_candidate
-        result["valid"] = True
-        result["source"] = "databricks_ai"
-        return result
-
-    # 4. Fallback to Claude
-    result["retried"] = True
-    #result["debug_trace"]["validation_failure"] = f"DBCS SQL was invalid: {sql_candidate}"
-    
-    print(f"Validation Failed, falling back to Claude")
+    system = (
+        "You are the DataForge SQL Self-Healing Agent. A SQL query failed with an error. "
+        "Fix the query based on the error message. Return a corrected query.\n\n"
+        f"{SCHEMA_CONTEXT}\n"
+        f"Use LIMIT {limit}.\n"
+    )
+    user_msg = (
+        f"Original question: {nl_question}\n\n"
+        f"Failed SQL:\n{original_sql}\n\n"
+        f"Error: {error_msg}\n\n"
+        "Please fix this SQL query."
+    )
 
     for attempt in range(MAX_RETRIES):
-        # We'll log what we send to Claude
-        result["debug_trace"][f"claude_attempt_{attempt+1}_input"] = {
-            "prompt": prompt,
-            "schema": schema_context
-        }
-        
-        sql_system_prompt = (
-            "You are a Senior SQL Architect. Return ONLY the raw SQL query. "
-            "Do not include any explanation, markdown, or formatting.\n\n"
-            f"{schema_context}"
-        )
+        result = call_claude(system, user_msg, SQL_TOOL)
+        if result is None:
+            return None, "Self-healing LLM call failed", ""
 
-        sql_candidate = call_claude(
-            user_prompt=prompt,
-            system_prompt=sql_system_prompt
-        )
-        # parse the response
-        sql_candidate = clean_sql(sql_candidate)
-        
-        # result["debug_trace"][f"claude_attempt_{attempt+1}_output"] = sql_candidate
-        # print(f"--- CLAUDE OUTPUT (Attempt {attempt+1}) ---\n{sql_candidate}")
+        sql = result.get("sql", "")
+        reason = result.get("reason", "Fixed query")
 
-        if is_query_valid(sql_candidate):
-            result["sql"] = sql_candidate
-            result["valid"] = True
-            result["source"] = "claude_fallback"
-            return result
+        if result.get("cannot_answer") or not sql.strip():
+            return None, reason or "Cannot fix this query", ""
 
-    result["error"] = "Both generators failed to produce valid SQL."
-    return result
+        fixed_sql = sql.strip()
+        diff_text = sql_diff(original_sql, fixed_sql)
+        return fixed_sql, reason, diff_text
+
+    return None, "Self-healing exhausted all retries", ""
