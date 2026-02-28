@@ -27,6 +27,9 @@ def init_state() -> None:
         # Suggestions page state
         "suggested_chat_prompt": None,
         "demo_bundle_loaded": False,
+        "business_request": "",
+        "schema_suggestions": [],
+        "suggestions_error": None,
         # Admin / registry state
         "app_registry": [],                 # list of dicts
         "admin_filter_status": "All",

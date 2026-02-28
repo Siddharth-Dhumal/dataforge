@@ -61,14 +61,14 @@ with st.container(border=True):
 with st.container(border=True):
     
     st.button("✨ What Should I Build?", on_click=prefill_suggestion, help="Click for an AI suggestion")
-    
+
+    # Ensure business_request has a default if empty
+    if not st.session_state.get("business_request"):
+        st.session_state.business_request = "Build an order analytics dashboard by region and order type. Mask regional_manager."
+
     st.text_area(
         "Business request",
         key="business_request",
-        value=st.session_state.get(
-            "business_request",
-            "Build an order analytics dashboard by region and order type. Mask regional_manager.",
-        ),
         height=100,
         placeholder="Describe the dashboard. Include filters + masking needs…",
     )

@@ -1,14 +1,27 @@
-import streamlit as st
+"""
+Page 4 — Suggestions (pages/4_Suggestions.py)
+
+Per masterplan line 319:
+  - "Analyze My Data" button
+  - Calls get_schema_metadata(), passes to Agent 4 (Schema Analyzer)
+  - Returns 5 suggestion cards with title, description, tables, KPIs
+  - "Build This" button on each card writes factory_prompt to session state
+    and navigates to Page 1
+
+Per masterplan line 636 (demo script):
+  - Click "Analyze My Data," show 5 suggestions appear from schema analysis,
+    click "Build This" — factory pre-fills with the suggestion prompt
+"""
 from datetime import datetime, timezone
+import streamlit as st
 
 from ui.theme import apply_theme
 from ui.state import init_state
-from ui.chat_engine import answer_chat
 
 apply_theme()
 init_state()
 
-# Full-width
+# Full-width layout
 st.markdown(
     """
     <style>
@@ -17,174 +30,197 @@ st.markdown(
         padding-left: clamp(18px, 4vw, 72px) !important;
         padding-right: clamp(18px, 4vw, 72px) !important;
       }
+      /* Suggestion card styling */
+      .suggestion-card {
+        background: linear-gradient(135deg, rgba(30,41,59,0.8), rgba(15,23,42,0.9));
+        border: 1px solid rgba(148,163,184,0.15);
+        border-radius: 14px;
+        padding: 24px;
+        margin-bottom: 12px;
+        transition: transform 0.2s, border-color 0.3s;
+      }
+      .suggestion-card:hover {
+        border-color: rgba(99,102,241,0.5);
+        transform: translateY(-2px);
+      }
+      .suggestion-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: #e2e8f0;
+        margin-bottom: 8px;
+      }
+      .suggestion-desc {
+        color: #94a3b8;
+        font-size: 14px;
+        line-height: 1.5;
+        margin-bottom: 12px;
+      }
+      .kpi-badge {
+        display: inline-block;
+        background: rgba(99,102,241,0.15);
+        border: 1px solid rgba(99,102,241,0.3);
+        border-radius: 6px;
+        padding: 3px 10px;
+        font-size: 12px;
+        color: #818cf8;
+        margin: 2px 4px 2px 0;
+      }
+      .table-badge {
+        display: inline-block;
+        background: rgba(16,185,129,0.12);
+        border: 1px solid rgba(16,185,129,0.3);
+        border-radius: 6px;
+        padding: 3px 10px;
+        font-size: 12px;
+        color: #34d399;
+        margin: 2px 4px 2px 0;
+      }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 st.title("Suggestions")
-st.caption("One-click demo starters.")
-
-TEMPLATES = [
-    {
-        "id": "orders",
-        "title": "Order Analytics by Region",
-        "dataset": "Orders (governed.orders)",
-        "factory_request": (
-            "Build an order analytics dashboard by region and order type. "
-            "Mask regional_manager. Include filters for region and order_type. "
-            "Show charts: orders by region, order types breakdown, quantity distribution."
-        ),
-        "chat_prompt": "Orders by region",
-        "dash_region": "All",
-        "dash_days": 30,
-        "dash_product_lines": [],
-    },
-    {
-        "id": "inventory",
-        "title": "Inventory Risk Watch",
-        "dataset": "Inventory (governed.inventory)",
-        "factory_request": (
-            "Create an inventory dashboard showing stock levels by SKU and region. "
-            "Mask regional_manager. Include drill-down filters by region and SKU. "
-            "Show charts: stock value by region, top SKUs by quantity, cost distribution."
-        ),
-        "chat_prompt": "Show inventory stock levels by SKU",
-        "dash_region": "All",
-        "dash_days": 30,
-        "dash_product_lines": [],
-    },
-    {
-        "id": "shipping",
-        "title": "Shipping & Logistics Overview",
-        "dataset": "Shipping (governed.shipping)",
-        "factory_request": (
-            "Build a shipping dashboard showing transit status by region and carrier. "
-            "Mask regional_manager. Include filters for region, shipping_org, and status. "
-            "Show charts: shipment count by status, in-transit value by carrier, regional breakdown."
-        ),
-        "chat_prompt": "Shipping status by region",
-        "dash_region": "All",
-        "dash_days": 30,
-        "dash_product_lines": [],
-    },
-]
+st.caption("AI-powered schema analysis — discover what dashboards your data can power")
 
 
-def load_template_into_factory(tpl: dict) -> None:
-    st.session_state.business_request = tpl["factory_request"]
-    st.session_state.selected_dataset = tpl["dataset"]
-    st.session_state.last_generated_spec = None
-    st.session_state.last_generated_code = None
+# ── Session state for suggestions ─────────────────────────────────────
+if "schema_suggestions" not in st.session_state:
+    st.session_state.schema_suggestions = []
+if "suggestions_loading" not in st.session_state:
+    st.session_state.suggestions_loading = False
+if "suggestions_error" not in st.session_state:
+    st.session_state.suggestions_error = None
 
 
-def apply_template_to_dashboard_filters(tpl: dict) -> None:
-    st.session_state.dash_region = tpl["dash_region"]
-    st.session_state.dash_days = tpl["dash_days"]
-    st.session_state.dash_product_lines = tpl.get("dash_product_lines", [])
-
-
-def run_chat_demo(tpl: dict) -> None:
-    prompt = tpl["chat_prompt"]
-    st.session_state.suggested_chat_prompt = prompt
-
-    st.session_state.chat_history.append({"role": "user", "content": prompt})
-
-    seed = 300 + st.session_state.dashboard_refresh_count
-    result = answer_chat(
-        prompt,
-        days=st.session_state.chat_days,
-        safe_mode=st.session_state.safe_mode,
-        demo_mode=st.session_state.demo_mode,
-        seed=seed,
-    )
-
-    st.session_state.last_chat_sql = result.sql
-    st.session_state.last_chat_policy_note = result.policy_note
-    st.session_state.chat_history.append({
-        "role": "assistant",
-        "content": result.assistant_text,
-        "preview_rows": result.preview_rows,
-    })
-
-    st.session_state.audit_events.append(
-        {
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "event": "chat_query",
-            "status": "allowed" if result.can_answer else "blocked",
-            "note": result.policy_note,
-        }
-    )
-
-
-def load_backup_full_demo() -> None:
-    tpl = TEMPLATES[0]
-
-    load_template_into_factory(tpl)
-    apply_template_to_dashboard_filters(tpl)
-
-    st.session_state.last_generated_spec = {
-        "app_name": "Order Analytics",
-        "governance": {"mask_columns": ["regional_manager"], "notes": "PII masked via Unity Catalog"},
-        "dashboard": {
-            "tables": ["governed.orders"],
-            "charts": ["Orders by Region", "Order Types Breakdown", "Quantity Distribution"],
-            "filters": ["region", "order_type"],
-        },
-    }
-    st.session_state.last_generated_code = (
-        "# Generated dashboard code for Order Analytics\n"
-        "import streamlit as st\n"
-        "from core.databricks_connect import execute_query\n"
-        "\n"
-        "st.title('Order Analytics')\n"
-        "df = execute_query('SELECT region, order_type, SUM(ord_qty) as total FROM workspace.governed.orders GROUP BY region, order_type LIMIT 500')\n"
-        "st.dataframe(df)\n"
-    )
-
-    st.session_state.chat_history = []
-    run_chat_demo(tpl)
-
-    st.session_state.audit_events.append(
-        {
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "event": "factory_generate",
-            "status": "allowed",
-            "note": "Generated spec + code (demo bundle).",
-        }
-    )
-
-    st.session_state.demo_bundle_loaded = True
-
-
-# --- Top: never-fail button ---
+# ── "Analyze My Data" button ──────────────────────────────────────────
 with st.container(border=True):
-    st.subheader("Backup demo")
-    if st.button("Load Full Demo Bundle ✅", key="load_full_demo", width="stretch"):
-        load_backup_full_demo()
-        st.success("Full demo bundle loaded.")
-        st.rerun()
+    st.markdown(
+        "### 🔬 Schema Analysis\n"
+        "Click below to analyze your governed data tables and get AI-powered "
+        "suggestions for dashboards you can build instantly."
+    )
 
-# --- Templates ---
-for tpl in TEMPLATES:
-    with st.container(border=True):
-        st.subheader(tpl["title"])
-        st.caption(tpl["dataset"])
-        st.write(tpl["factory_request"])
+    col_btn, col_status = st.columns([1, 2])
+    with col_btn:
+        analyze_clicked = st.button(
+            "🔍 Analyze My Data",
+            key="analyze_schema_btn",
+            type="primary",
+            use_container_width=True,
+        )
 
-        b1, b2, b3 = st.columns([1.0, 1.0, 1.2], gap="small")
-        with b1:
-            if st.button("Load Factory", key=f"tpl_factory_{tpl['id']}", width="stretch"):
-                load_template_into_factory(tpl)
-                st.success("Loaded.")
-                st.rerun()
-        with b2:
-            if st.button("Set Dashboard", key=f"tpl_dash_{tpl['id']}", width="stretch"):
-                apply_template_to_dashboard_filters(tpl)
-                st.success("Set.")
-                st.rerun()
-        with b3:
-            if st.button("Run Chat", key=f"tpl_chat_{tpl['id']}", width="stretch"):
-                run_chat_demo(tpl)
-                st.success("Generated.")
-                st.rerun()
+    if analyze_clicked:
+        with st.spinner("🧠 Agent 4 analyzing your schema..."):
+            try:
+                from agents.schema_analyzer import analyze_schema, FALLBACK_SUGGESTIONS
+                result = analyze_schema()
+
+                if result["success"] and result["suggestions"]:
+                    st.session_state.schema_suggestions = result["suggestions"]
+                    st.session_state.suggestions_error = None
+                else:
+                    # Use fallback suggestions if LLM fails
+                    st.session_state.schema_suggestions = FALLBACK_SUGGESTIONS
+                    st.session_state.suggestions_error = (
+                        f"⚠️ Live analysis unavailable ({result.get('error', 'unknown')}). "
+                        "Showing curated suggestions."
+                    )
+            except Exception as e:
+                # Absolute last resort — hardcoded suggestions
+                from agents.schema_analyzer import FALLBACK_SUGGESTIONS
+                st.session_state.schema_suggestions = FALLBACK_SUGGESTIONS
+                st.session_state.suggestions_error = (
+                    f"⚠️ Agent 4 error ({e}). Showing curated suggestions."
+                )
+
+            # Log the event
+            st.session_state.audit_events.append({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "event": "schema_analysis",
+                "source": "agent4",
+                "status": "success" if not st.session_state.suggestions_error else "fallback",
+                "note": f"{len(st.session_state.schema_suggestions)} suggestions generated",
+            })
+
+            st.rerun()
+
+    # Show status
+    with col_status:
+        if st.session_state.suggestions_error:
+            st.warning(st.session_state.suggestions_error)
+        elif st.session_state.schema_suggestions:
+            st.success(f"✅ {len(st.session_state.schema_suggestions)} suggestions ready")
+
+
+# ── Suggestion Cards ──────────────────────────────────────────────────
+if st.session_state.schema_suggestions:
+    st.markdown("---")
+    st.markdown("### 💡 Recommended Dashboards")
+    st.caption("Each suggestion is tailored to your governed data. Click **Build This** to create it instantly.")
+
+    for idx, suggestion in enumerate(st.session_state.schema_suggestions):
+        with st.container(border=True):
+            # Title
+            st.markdown(
+                f"<div class='suggestion-title'>📊 {suggestion['title']}</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Description
+            st.markdown(
+                f"<div class='suggestion-desc'>{suggestion['description']}</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Tables badges
+            tables_html = "".join(
+                f"<span class='table-badge'>📁 {t}</span>" for t in suggestion.get("tables", [])
+            )
+            if tables_html:
+                st.markdown(f"**Tables:** {tables_html}", unsafe_allow_html=True)
+
+            # KPI badges
+            kpis_html = "".join(
+                f"<span class='kpi-badge'>📈 {k}</span>" for k in suggestion.get("kpis", [])
+            )
+            if kpis_html:
+                st.markdown(f"**KPIs:** {kpis_html}", unsafe_allow_html=True)
+
+            # Factory prompt preview
+            with st.expander("🔍 View Factory Prompt"):
+                st.code(suggestion.get("factory_prompt", ""), language="text")
+
+            # "Build This" button — writes factory_prompt to session state and navigates to Page 1
+            if st.button(
+                "🏭 Build This",
+                key=f"build_suggestion_{idx}",
+                type="primary",
+                use_container_width=True,
+            ):
+                # Write the factory_prompt to session state
+                st.session_state.business_request = suggestion["factory_prompt"]
+                # Log the event
+                st.session_state.audit_events.append({
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "event": "suggestion_selected",
+                    "source": "agent4",
+                    "status": "success",
+                    "note": f"Selected: {suggestion['title']}",
+                })
+                # Navigate to Factory (Page 1)
+                st.switch_page("pages/1_Factory.py")
+
+else:
+    # Show empty state with instructions
+    st.markdown("---")
+    st.info(
+        "👆 Click **Analyze My Data** above to get AI-powered suggestions "
+        "based on your governed data schema."
+    )
+
+# ── Policy footer ─────────────────────────────────────────────────────
+with st.container(border=True):
+    st.success(
+        "🛡️ All suggestions respect governance: SELECT-only • masked PII • governed views only"
+    )

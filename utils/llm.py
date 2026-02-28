@@ -38,7 +38,7 @@ def _get_client() -> anthropic.Anthropic:
     return _client
 
 
-def call_claude(system: str, user_message: str, tool: dict) -> dict | None:
+def call_claude(system: str, user_message: str, tool: dict, *, max_tokens: int = 1024) -> dict | None:
     """
     Universal wrapper for all Anthropic tool use calls (factory + agents).
     Returns tool input dict on success, None on any failure.
@@ -48,7 +48,7 @@ def call_claude(system: str, user_message: str, tool: dict) -> dict | None:
         client = _get_client()
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=1024,
+            max_tokens=max_tokens,
             tools=[tool],
             tool_choice={"type": "tool", "name": tool["name"]},
             system=system,
