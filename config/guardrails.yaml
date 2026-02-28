@@ -1,0 +1,26 @@
+allowed_tables:
+  - governed.inventory
+  - governed.orders
+  - governed.shipping
+
+banned_sql_patterns:
+  - "DROP"
+  - "DELETE"
+  - "UPDATE"
+  - "INSERT"
+  - "TRUNCATE"
+  - "CREATE"
+  - "ALTER"
+  - "SELECT *"
+
+max_rows_returned: 10000
+
+pii_columns:
+  - regional_manager
+
+allowed_chart_types:
+  - bar
+  - line
+  - scatter
+  - heatmap
+  - pie

@@ -1,0 +1,25 @@
+viewer:
+  allowed_tables:
+    - governed.inventory
+    - governed.orders
+  allowed_operations:
+    - SELECT
+  max_rows: 1000
+  can_see_unmasked_pii: false
+
+analyst:
+  allowed_tables:
+    - governed.inventory
+    - governed.orders
+    - governed.shipping
+  allowed_operations:
+    - SELECT
+  max_rows: 10000
+  can_see_unmasked_pii: false
+
+admin:
+  allowed_tables: all
+  allowed_operations:
+    - SELECT
+  max_rows: 10000
+  can_see_unmasked_pii: true
