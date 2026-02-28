@@ -1,8 +1,6 @@
 CREATE TABLE IF NOT EXISTS workspace.audit.app_registry (
     app_id STRING,
-    creator_role STRING,
-    spec_json STRING,
-    generated_code_hash STRING,
-    created_at TIMESTAMP,
-    status STRING
+    app_name STRING,
+    created_by STRING,
+    timestamp TIMESTAMP
 ) USING DELTA;

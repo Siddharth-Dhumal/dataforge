@@ -14,7 +14,7 @@ def get_cached_schema() -> dict:
     current_time = time.time()
     
     if not _CACHE or (current_time - _CACHE_TIMESTAMP) > CACHE_TTL:
-        _CACHE = get_schema_metadata()
+        _CACHE = get_schema_metadata("workspace", "governed")
         _CACHE_TIMESTAMP = current_time
     
     return _CACHE
