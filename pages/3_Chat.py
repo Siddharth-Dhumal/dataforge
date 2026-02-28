@@ -41,18 +41,21 @@ with st.container(border=False):
     if b3.button("🚚 Shipping status", use_container_width=True):
         st.session_state.force_chat_prompt = "Shipping status by region"
 
-# --- Output area ---
 with st.container(border=True):
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if msg["role"] == "assistant" and msg.get("preview_rows"):
                 st.dataframe(msg["preview_rows"], use_container_width=True)
-                row_count = len(msg["preview_rows"])
-                # Dynamic insight based on actual data
-                first_row = msg["preview_rows"][0] if msg["preview_rows"] else {}
-                cols = ", ".join(first_row.keys()) if first_row else "N/A"
-                ai_briefing(f"📊 Returned {row_count} rows from governed views. Columns: {cols}. PII masked, SELECT-only enforced.")
+                # Show AI-generated insight from Agent 3
+                insight = msg.get("insight", "")
+                if insight:
+                    ai_briefing(f"🧠 {insight}")
+                else:
+                    row_count = len(msg["preview_rows"])
+                    first_row = msg["preview_rows"][0] if msg["preview_rows"] else {}
+                    cols = ", ".join(first_row.keys()) if first_row else "N/A"
+                    ai_briefing(f"📊 Returned {row_count} rows from governed views. Columns: {cols}. PII masked, SELECT-only enforced.")
 
 # --- Details ---
 with st.container(border=True):
@@ -101,6 +104,7 @@ if prompt:
         "role": "assistant",
         "content": result.assistant_text,
         "preview_rows": result.preview_rows,
+        "insight": result.insight,
     })
 
     # Log to audit
