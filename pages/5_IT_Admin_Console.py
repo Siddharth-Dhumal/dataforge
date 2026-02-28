@@ -85,14 +85,14 @@ with st.container(border=True):
             # Also register in Databricks if possible
             try:
                 from factory.registry import register_app
-                import hashlib
                 spec = st.session_state.get("last_generated_spec") or {}
                 code = st.session_state.get("last_generated_code") or ""
                 register_app(
-                    app_id=f"app_{datetime.now().strftime('%Y%m%d%H%M%S')}",
                     creator_role="analyst",
-                    spec_json=str(spec),
-                    code_hash=hashlib.sha256(code.encode()).hexdigest()[:12],
+                    spec=spec,
+                    generated_code=code,
+                    status="registered",
+                    app_id=f"app_{datetime.now().strftime('%Y%m%d%H%M%S')}",
                 )
             except Exception:
                 pass

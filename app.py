@@ -1,5 +1,4 @@
 import streamlit as st
-import random
 from ui.theme import apply_theme
 from ui.state import init_state
 
