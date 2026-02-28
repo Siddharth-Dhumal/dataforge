@@ -48,8 +48,11 @@ with st.container(border=True):
             st.markdown(msg["content"])
             if msg["role"] == "assistant" and msg.get("preview_rows"):
                 st.dataframe(msg["preview_rows"], use_container_width=True)
-            if msg["role"] == "assistant":
-                ai_briefing("AI Insight: Data sourced from governed views with PII masking and query guardrails enforced.")
+                row_count = len(msg["preview_rows"])
+                # Dynamic insight based on actual data
+                first_row = msg["preview_rows"][0] if msg["preview_rows"] else {}
+                cols = ", ".join(first_row.keys()) if first_row else "N/A"
+                ai_briefing(f"📊 Returned {row_count} rows from governed views. Columns: {cols}. PII masked, SELECT-only enforced.")
 
 # --- Details ---
 with st.container(border=True):
