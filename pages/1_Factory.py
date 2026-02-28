@@ -85,7 +85,7 @@ with st.container(border=True):
         # Animated Factory Progress Feed
         status_placeholder = st.empty()
         
-        # Step 1: Parse intent
+        # Animated progress
         status_placeholder.markdown(
             """
             <div class="df-card processing-card">
@@ -95,20 +95,20 @@ with st.container(border=True):
             """, unsafe_allow_html=True
         )
 
-        # Actually call the factory pipeline
+        # Call the real factory pipeline
+        from factory.factory import run_factory_pipeline
+        user_desc = st.session_state.business_request
+        user_role = "analyst"
+        
         try:
-            from factory.factory import run_factory_pipeline
-            user_desc = st.session_state.business_request
-            user_role = "analyst"  # Default role for demo
-            
             success, msg, spec, code = run_factory_pipeline(user_desc, user_role)
         except Exception as e:
             success = False
             msg = str(e)
-            spec = None
-            code = None
+            spec = {}
+            code = ""
 
-        # Step 2: Show validation
+        # Show completion
         status_placeholder.markdown(
             """
             <div class="df-card processing-card">
@@ -120,34 +120,29 @@ with st.container(border=True):
             </div>
             """, unsafe_allow_html=True
         )
-        time.sleep(0.8)
+        time.sleep(0.5)
         status_placeholder.empty()
 
         if success and spec:
+            # Add governance info to the spec for display
+            spec["governance"] = {
+                "mask_columns": spec.get("mask_columns", ["regional_manager"]),
+                "pii_policy": "regional_manager masked via Unity Catalog",
+                "query_mode": "SELECT-only, LIMIT enforced",
+            }
+            
             st.session_state.last_generated_spec = spec
             st.session_state.last_generated_code = code or "# Code generation completed"
             
-            # Log to audit
             st.session_state.audit_events.append({
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "event": "factory_generate",
                 "status": "allowed",
-                "note": f"Generated spec for: {spec.get('app_name', 'Unnamed')}",
+                "note": f"Generated spec: {spec.get('app_name', spec.get('domain', 'Unnamed'))} | source: {spec.get('source', 'unknown')}",
             })
             
             st.success(f"✅ {msg}")
         else:
-            # Fallback to hardcoded spec if pipeline fails
-            st.session_state.last_generated_spec = {
-                "app_name": "Order Analytics",
-                "governance": {"mask_columns": ["regional_manager"]},
-                "dashboard": {
-                    "tables": ["governed.orders"],
-                    "charts": ["Orders by Region", "Order Types Breakdown", "Quantity Trend"],
-                    "filters": ["region", "order_type"],
-                },
-            }
-            st.session_state.last_generated_code = "# Factory pipeline used fallback defaults\nimport streamlit as st\nst.title('Generated Dashboard')"
-            st.warning(f"⚠️ Pipeline used fallback: {msg}")
+            st.error(f"❌ Pipeline failed: {msg}")
         
         st.rerun()

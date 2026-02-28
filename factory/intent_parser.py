@@ -11,6 +11,15 @@ You are the DataForge intent parser.
 Your job is to take a business user's plain English description of a data application and convert it into a structured JSON application specification.
 You must use the `generate_app_spec` tool to output the result.
 Ensure that missing fields get safe, reasonable defaults so that a partial application can still be generated.
+
+IMPORTANT: You can ONLY use these governed tables (use the exact names below):
+
+1. governed.orders — columns: order_nbr (STRING), regional_manager (STRING, PII-masked), order_type (STRING), ord_qty (DECIMAL), region (STRING)
+2. governed.inventory — columns: regional_manager (STRING, PII-masked), sku (STRING), sku_description (STRING), qoh (DECIMAL), qoh_cost (DECIMAL), region (STRING)
+3. governed.shipping — columns: region (STRING), regional_manager (STRING, PII-masked), shipping_org (STRING), ship_date_ts (STRING), wms_shipment_status (STRING), sku (STRING), intransit_value (DECIMAL)
+
+Always use the exact table names above (e.g. 'governed.orders', not just 'orders').
+The PII column 'regional_manager' is always masked via Unity Catalog.
 """
 
 INTENT_PARSER_TOOL = {
@@ -25,8 +34,8 @@ INTENT_PARSER_TOOL = {
             },
             "tables": {
                 "type": "array",
-                "items": {"type": "string"},
-                "description": "List of database tables required. Make reasonable guesses based on the domain if not explicitly mentioned."
+                "items": {"type": "string", "enum": ["governed.orders", "governed.inventory", "governed.shipping"]},
+                "description": "List of governed database tables to use. MUST be one of: governed.orders, governed.inventory, governed.shipping."
             },
             "kpis": {
                 "type": "array",
