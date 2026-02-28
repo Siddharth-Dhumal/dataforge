@@ -1,14 +1,17 @@
 """
 Chat engine that generates governed SQL and executes it against Databricks.
-Falls back to demo data if Databricks is unavailable.
+Connects directly to Databricks — no wrappers, no caching, no silent fallbacks.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import os
+import logging
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Dict, List, Tuple
 
-from ui.demo_data import build_sales_rows
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -26,33 +29,76 @@ _BLOCKED_TERMS = [
 ]
 
 
-def _clean_row(row: dict) -> dict:
-    """Convert Decimal and other non-serializable types to plain Python types."""
-    cleaned = {}
-    for k, v in row.items():
-        if isinstance(v, Decimal):
-            cleaned[k] = float(v)
-        else:
-            cleaned[k] = v
-    return cleaned
-
-
-def _try_real_query(sql: str) -> tuple[bool, list[dict], str]:
-    """
-    Try to execute SQL against Databricks.
-    Returns (success, rows, error_message).
-    """
-    try:
+def _ensure_env():
+    """Load .env if Databricks vars aren't set yet."""
+    if not os.environ.get("DATABRICKS_HOST"):
         from dotenv import load_dotenv
-        load_dotenv()
-        from core.databricks_connect import execute_query
-        df = execute_query(sql)
-        if "error" in df.columns:
-            return False, [], str(df["error"].iloc[0])
-        rows = [_clean_row(r) for r in df.to_dict("records")]
-        return True, rows, ""
+        env_path = Path(__file__).resolve().parent.parent / ".env"
+        load_dotenv(dotenv_path=env_path)
+        logger.info(f"Loaded .env from {env_path}")
+
+
+def _clean_value(v):
+    """Convert Decimal and other non-serializable types to plain Python types."""
+    if isinstance(v, Decimal):
+        return float(v)
+    return v
+
+
+def _run_query(sql: str) -> Tuple[bool, List[Dict], str]:
+    """
+    Execute SQL directly against Databricks.
+    Returns (success, rows_as_dicts, error_message).
+    """
+    _ensure_env()
+
+    host = os.environ.get("DATABRICKS_HOST", "")
+    http_path = os.environ.get("DATABRICKS_HTTP_PATH", "")
+    token = os.environ.get("DATABRICKS_TOKEN", "")
+
+    if not host or not http_path or not token:
+        return False, [], "Missing DATABRICKS_HOST, DATABRICKS_HTTP_PATH, or DATABRICKS_TOKEN in environment"
+
+    # Validate query via guardrails
+    try:
+        from utils.query_validator import validate_query
+        validated_sql = validate_query(sql)
     except Exception as e:
-        return False, [], str(e)
+        return False, [], f"Query validation failed: {e}"
+
+    # Execute against Databricks
+    try:
+        from databricks import sql as dbsql
+        conn = dbsql.connect(
+            server_hostname=host,
+            http_path=http_path,
+            access_token=token,
+        )
+        cursor = conn.cursor()
+        cursor.execute(validated_sql)
+
+        if not cursor.description:
+            cursor.close()
+            conn.close()
+            return True, [], ""
+
+        columns = [desc[0] for desc in cursor.description]
+        raw_rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        # Convert to list of dicts with clean types
+        rows = []
+        for raw in raw_rows:
+            row = {}
+            for col, val in zip(columns, raw):
+                row[col] = _clean_value(val)
+            rows.append(row)
+
+        return True, rows, ""
+
+    except Exception as e:
+        return False, [], f"Databricks query error: {e}"
 
 
 def answer_chat(
@@ -66,9 +112,8 @@ def answer_chat(
     p = (prompt or "").strip()
     lower = p.lower()
 
+    # Block PII requests
     if any(t in lower for t in _BLOCKED_TERMS):
-        sql = "-- BLOCKED: request involves sensitive/PII fields"
-        note = "🛡️ Blocked by governance: request touches sensitive fields."
         return ChatResult(
             can_answer=False,
             assistant_text=(
@@ -78,8 +123,8 @@ def answer_chat(
                 "- Inventory stock levels\n"
                 "- Shipping status"
             ),
-            sql=sql,
-            policy_note=note,
+            sql="-- BLOCKED: request involves sensitive/PII fields",
+            policy_note="🛡️ Blocked by governance: request touches sensitive fields.",
             preview_rows=[],
         )
 
@@ -94,168 +139,72 @@ def answer_chat(
 
     if wants_inventory:
         sql = (
-            f"SELECT sku, sku_description, region, SUM(qoh) AS total_qty, SUM(qoh_cost) AS total_cost\n"
-            f"FROM workspace.governed.inventory\n"
-            f"GROUP BY sku, sku_description, region\n"
-            f"ORDER BY total_cost DESC\n"
+            f"SELECT sku, sku_description, region, SUM(qoh) AS total_qty, SUM(qoh_cost) AS total_cost "
+            f"FROM workspace.governed.inventory "
+            f"GROUP BY sku, sku_description, region "
+            f"ORDER BY total_cost DESC "
             f"LIMIT {limit}"
         )
-        intent_label = "inventory"
-        msg_ok = "📦 **Inventory levels by SKU and region** (from `governed.inventory`):"
+        label = "📦 **Inventory levels by SKU and region** (from `governed.inventory`)"
     elif wants_shipping:
         sql = (
-            f"SELECT region, shipping_org, wms_shipment_status, COUNT(sku) AS shipment_count, SUM(intransit_value) AS total_value\n"
-            f"FROM workspace.governed.shipping\n"
-            f"GROUP BY region, shipping_org, wms_shipment_status\n"
-            f"ORDER BY total_value DESC\n"
+            f"SELECT region, shipping_org, wms_shipment_status, COUNT(sku) AS shipment_count, SUM(intransit_value) AS total_value "
+            f"FROM workspace.governed.shipping "
+            f"GROUP BY region, shipping_org, wms_shipment_status "
+            f"ORDER BY total_value DESC "
             f"LIMIT {limit}"
         )
-        intent_label = "shipping"
-        msg_ok = "🚚 **Shipping status by region and carrier** (from `governed.shipping`):"
+        label = "🚚 **Shipping status by region and carrier** (from `governed.shipping`)"
     elif wants_region:
         sql = (
-            f"SELECT region, order_type, COUNT(order_nbr) AS order_count, SUM(ord_qty) AS total_qty\n"
-            f"FROM workspace.governed.orders\n"
-            f"GROUP BY region, order_type\n"
-            f"ORDER BY total_qty DESC\n"
+            f"SELECT region, order_type, COUNT(order_nbr) AS order_count, SUM(ord_qty) AS total_qty "
+            f"FROM workspace.governed.orders "
+            f"GROUP BY region, order_type "
+            f"ORDER BY total_qty DESC "
             f"LIMIT {limit}"
         )
-        intent_label = "orders_by_region"
-        msg_ok = "🌍 **Orders grouped by region and type** (from `governed.orders`):"
+        label = "🌍 **Orders by region and type** (from `governed.orders`)"
     elif wants_order or wants_top:
         sql = (
-            f"SELECT order_type, COUNT(order_nbr) AS order_count, SUM(ord_qty) AS total_qty\n"
-            f"FROM workspace.governed.orders\n"
-            f"GROUP BY order_type\n"
-            f"ORDER BY total_qty DESC\n"
+            f"SELECT order_type, COUNT(order_nbr) AS order_count, SUM(ord_qty) AS total_qty "
+            f"FROM workspace.governed.orders "
+            f"GROUP BY order_type "
+            f"ORDER BY total_qty DESC "
             f"LIMIT {limit}"
         )
-        intent_label = "orders_by_type"
-        msg_ok = "📊 **Orders grouped by type** (from `governed.orders`):"
+        label = "📊 **Orders by type** (from `governed.orders`)"
     else:
         sql = (
-            f"SELECT region, COUNT(order_nbr) AS order_count, SUM(ord_qty) AS total_qty\n"
-            f"FROM workspace.governed.orders\n"
-            f"GROUP BY region\n"
-            f"ORDER BY total_qty DESC\n"
+            f"SELECT region, COUNT(order_nbr) AS order_count, SUM(ord_qty) AS total_qty "
+            f"FROM workspace.governed.orders "
+            f"GROUP BY region "
+            f"ORDER BY total_qty DESC "
             f"LIMIT {limit}"
         )
-        intent_label = "orders_summary"
-        msg_ok = "📋 **Orders summary by region** (from `governed.orders`):"
+        label = "📋 **Orders summary by region** (from `governed.orders`)"
 
-    # Try real Databricks query
-    preview = []
-    data_source = "demo"
-    error_detail = ""
+    # Execute against Databricks
+    ok, rows, err = _run_query(sql)
 
-    if not demo_mode:
-        ok, rows, err = _try_real_query(sql)
-        if ok and rows:
-            preview = rows[:20]
-            data_source = "databricks"
-        else:
-            error_detail = err
-
-    # Build response message
-    if data_source == "databricks":
-        msg = f"{msg_ok}\n\n✅ **{len(preview)} rows** returned live from Databricks."
+    if ok and rows:
+        msg = f"{label}\n\n✅ **{len(rows)} rows** returned live from Databricks (governed views, PII masked)."
+        source = "databricks"
+    elif ok and not rows:
+        msg = f"{label}\n\n⚠️ Query returned 0 rows."
+        source = "databricks (empty)"
     else:
-        msg = f"{msg_ok}\n\n⚠️ Using demo data"
-        if error_detail:
-            msg += f" (Databricks: {error_detail[:100]})"
-        # Generate query-specific demo data
-        preview = _build_demo_for_intent(intent_label, days=days, seed=seed)
+        msg = f"{label}\n\n❌ **Databricks error:** {err}"
+        source = f"error: {err[:60]}"
 
     policy_note = (
-        f"Source: {data_source} • governed views • masked PII • SELECT-only • LIMIT {limit}"
-        + (" • demo mode" if demo_mode else "")
+        f"Source: {source} • governed views • masked PII • SELECT-only • LIMIT {limit}"
         + (" • safe mode" if safe_mode else "")
     )
 
     return ChatResult(
-        can_answer=True,
+        can_answer=ok,
         assistant_text=msg,
         sql=sql,
         policy_note=policy_note,
-        preview_rows=preview,
+        preview_rows=rows[:20] if rows else [],
     )
-
-
-def _build_demo_for_intent(intent: str, *, days: int, seed: int) -> List[Dict]:
-    """Build intent-specific demo data so each query shows different columns."""
-    import random
-    rng = random.Random(seed)
-
-    if intent == "inventory":
-        skus = ["040-20004", "050-30001", "060-40002", "070-50003", "080-60004"]
-        descs = ["PW3 DC Unit", "Solar Panel A", "Battery Pack B", "Inverter C", "Connector D"]
-        regions = ["West", "Central", "East"]
-        rows = []
-        for sku, desc in zip(skus, descs):
-            for region in regions:
-                rows.append({
-                    "sku": sku,
-                    "sku_description": desc,
-                    "region": region,
-                    "total_qty": rng.randint(1000, 50000),
-                    "total_cost": round(rng.uniform(10000, 500000), 2),
-                })
-        rows.sort(key=lambda x: x["total_cost"], reverse=True)
-        return rows[:15]
-
-    elif intent == "shipping":
-        regions = ["West", "Central", "East", "Virtual Org"]
-        orgs = ["CA92", "TX01", "NY03"]
-        statuses = ["In Transit", "Delivered", "Pending"]
-        rows = []
-        for region in regions:
-            for org in orgs:
-                for status in statuses:
-                    rows.append({
-                        "region": region,
-                        "shipping_org": org,
-                        "wms_shipment_status": status,
-                        "shipment_count": rng.randint(10, 500),
-                        "total_value": round(rng.uniform(5000, 200000), 2),
-                    })
-        rows.sort(key=lambda x: x["total_value"], reverse=True)
-        return rows[:15]
-
-    elif intent == "orders_by_region":
-        regions = ["West", "Central", "East"]
-        types = ["TRANSFER_ORDER", "SALES_ORDER", "PURCHASE_ORDER", "RETURN_ORDER"]
-        rows = []
-        for region in regions:
-            for otype in types:
-                rows.append({
-                    "region": region,
-                    "order_type": otype,
-                    "order_count": rng.randint(100, 2000),
-                    "total_qty": rng.randint(5000, 300000),
-                })
-        rows.sort(key=lambda x: x["total_qty"], reverse=True)
-        return rows
-
-    elif intent == "orders_by_type":
-        types = ["TRANSFER_ORDER", "SALES_ORDER", "PURCHASE_ORDER", "RETURN_ORDER", "INTERNAL_ORDER"]
-        rows = []
-        for otype in types:
-            rows.append({
-                "order_type": otype,
-                "order_count": rng.randint(200, 3000),
-                "total_qty": rng.randint(10000, 500000),
-            })
-        rows.sort(key=lambda x: x["total_qty"], reverse=True)
-        return rows
-
-    else:  # orders_summary
-        regions = ["West", "Central", "East", "North", "South"]
-        rows = []
-        for region in regions:
-            rows.append({
-                "region": region,
-                "order_count": rng.randint(500, 5000),
-                "total_qty": rng.randint(50000, 500000),
-            })
-        rows.sort(key=lambda x: x["total_qty"], reverse=True)
-        return rows
