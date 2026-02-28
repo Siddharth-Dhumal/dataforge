@@ -8,7 +8,7 @@ from ui.chat_engine import answer_chat
 apply_theme()
 init_state()
 
-# Full-width like other pages
+# Full-width
 st.markdown(
     """
     <style>
@@ -27,46 +27,46 @@ st.caption("One-click demo starters.")
 
 TEMPLATES = [
     {
-        "id": "sales",
-        "title": "Retail Sales Performance",
-        "dataset": "Retail Sales (Demo)",
+        "id": "orders",
+        "title": "Order Analytics by Region",
+        "dataset": "Orders (governed.orders)",
         "factory_request": (
-            "Build a sales performance dashboard by region and product line for the last 30 days. "
-            "Mask customer_email. Let managers filter by region and product_line. "
-            "Show 3–5 visuals: revenue trend, revenue by region, revenue by product line."
+            "Build an order analytics dashboard by region and order type. "
+            "Mask regional_manager. Include filters for region and order_type. "
+            "Show charts: orders by region, order types breakdown, quantity distribution."
         ),
-        "chat_prompt": "Revenue by region last 30 days",
+        "chat_prompt": "Orders by region",
         "dash_region": "All",
         "dash_days": 30,
-        "dash_product_lines": ["Widgets", "Gadgets", "Services"],
+        "dash_product_lines": [],
     },
     {
         "id": "inventory",
         "title": "Inventory Risk Watch",
-        "dataset": "Retail Sales (Demo)",
+        "dataset": "Inventory (governed.inventory)",
         "factory_request": (
-            "Create an inventory risk dashboard for the last 30 days. "
-            "Highlight regions and product lines with unusual changes in orders and revenue. "
-            "Mask customer_email. Include drill-down filters by region and product_line."
+            "Create an inventory dashboard showing stock levels by SKU and region. "
+            "Mask regional_manager. Include drill-down filters by region and SKU. "
+            "Show charts: stock value by region, top SKUs by quantity, cost distribution."
         ),
-        "chat_prompt": "Top product lines by revenue last 30 days",
+        "chat_prompt": "Show inventory stock levels by SKU",
         "dash_region": "All",
         "dash_days": 30,
-        "dash_product_lines": ["Widgets", "Gadgets", "Services"],
+        "dash_product_lines": [],
     },
     {
-        "id": "support",
-        "title": "Support Tickets Overview",
-        "dataset": "Support Tickets (Demo)",
+        "id": "shipping",
+        "title": "Shipping & Logistics Overview",
+        "dataset": "Shipping (governed.shipping)",
         "factory_request": (
-            "Build a support overview dashboard for the last 30 days. "
-            "Show trends and breakdowns by category and region. "
-            "Do not display PII; keep results aggregated."
+            "Build a shipping dashboard showing transit status by region and carrier. "
+            "Mask regional_manager. Include filters for region, shipping_org, and status. "
+            "Show charts: shipment count by status, in-transit value by carrier, regional breakdown."
         ),
-        "chat_prompt": "Revenue trend over time last 30 days",
+        "chat_prompt": "Shipping status by region",
         "dash_region": "All",
         "dash_days": 30,
-        "dash_product_lines": ["Widgets", "Gadgets", "Services"],
+        "dash_product_lines": [],
     },
 ]
 
@@ -81,7 +81,7 @@ def load_template_into_factory(tpl: dict) -> None:
 def apply_template_to_dashboard_filters(tpl: dict) -> None:
     st.session_state.dash_region = tpl["dash_region"]
     st.session_state.dash_days = tpl["dash_days"]
-    st.session_state.dash_product_lines = tpl["dash_product_lines"]
+    st.session_state.dash_product_lines = tpl.get("dash_product_lines", [])
 
 
 def run_chat_demo(tpl: dict) -> None:
@@ -101,7 +101,11 @@ def run_chat_demo(tpl: dict) -> None:
 
     st.session_state.last_chat_sql = result.sql
     st.session_state.last_chat_policy_note = result.policy_note
-    st.session_state.chat_history.append({"role": "assistant", "content": result.assistant_text})
+    st.session_state.chat_history.append({
+        "role": "assistant",
+        "content": result.assistant_text,
+        "preview_rows": result.preview_rows,
+    })
 
     st.session_state.audit_events.append(
         {
@@ -120,18 +124,22 @@ def load_backup_full_demo() -> None:
     apply_template_to_dashboard_filters(tpl)
 
     st.session_state.last_generated_spec = {
-        "app_name": "Sales Performance",
-        "governance": {"mask_columns": ["customer_email"], "notes": "demo masking"},
+        "app_name": "Order Analytics",
+        "governance": {"mask_columns": ["regional_manager"], "notes": "PII masked via Unity Catalog"},
         "dashboard": {
-            "charts": ["Revenue trend", "Revenue by region", "Revenue by product line"],
-            "filters": ["region", "product_line"],
+            "tables": ["governed.orders"],
+            "charts": ["Orders by Region", "Order Types Breakdown", "Quantity Distribution"],
+            "filters": ["region", "order_type"],
         },
     }
     st.session_state.last_generated_code = (
-        "# (demo) generated dashboard code\n"
-        "def build_dashboard():\n"
-        "    # governed views only, select-only, limit enforced\n"
-        "    pass\n"
+        "# Generated dashboard code for Order Analytics\n"
+        "import streamlit as st\n"
+        "from core.databricks_connect import execute_query\n"
+        "\n"
+        "st.title('Order Analytics')\n"
+        "df = execute_query('SELECT region, order_type, SUM(ord_qty) as total FROM workspace.governed.orders GROUP BY region, order_type LIMIT 500')\n"
+        "st.dataframe(df)\n"
     )
 
     st.session_state.chat_history = []
@@ -149,7 +157,7 @@ def load_backup_full_demo() -> None:
     st.session_state.demo_bundle_loaded = True
 
 
-# --- Top: never-fail button (single, prominent) ---
+# --- Top: never-fail button ---
 with st.container(border=True):
     st.subheader("Backup demo")
     if st.button("Load Full Demo Bundle ✅", key="load_full_demo", width="stretch"):
@@ -157,7 +165,7 @@ with st.container(border=True):
         st.success("Full demo bundle loaded.")
         st.rerun()
 
-# --- Templates (stacked, minimal) ---
+# --- Templates ---
 for tpl in TEMPLATES:
     with st.container(border=True):
         st.subheader(tpl["title"])

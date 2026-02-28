@@ -163,6 +163,55 @@ with st.container(border=True):
                 fig_scatter.update_layout(**layout_opts, title="Orders vs Revenue")
                 st.plotly_chart(fig_scatter, use_container_width=True)
 
+# --- Live Databricks Data (real queries) ---
+with st.container(border=True):
+    st.subheader("🔴 Live Databricks Data")
+    st.caption("Querying `workspace.governed.*` tables in real time")
+    
+    db_tab1, db_tab2, db_tab3 = st.tabs(["Orders", "Inventory", "Shipping"])
+    
+    try:
+        from core.databricks_connect import execute_query
+        
+        with db_tab1:
+            region_filter = f"WHERE region = '{region}'" if region != "All" else ""
+            orders_df = execute_query(
+                f"SELECT region, order_type, COUNT(order_nbr) AS order_count, SUM(ord_qty) AS total_qty "
+                f"FROM workspace.governed.orders {region_filter} "
+                f"GROUP BY region, order_type ORDER BY total_qty DESC LIMIT 50"
+            )
+            if "error" not in orders_df.columns:
+                st.dataframe(orders_df, use_container_width=True)
+            else:
+                st.warning(f"Query issue: {orders_df['error'].iloc[0]}")
+        
+        with db_tab2:
+            inv_df = execute_query(
+                f"SELECT region, sku, sku_description, qoh, qoh_cost "
+                f"FROM workspace.governed.inventory "
+                f"{'WHERE region = ' + chr(39) + region + chr(39) if region != 'All' else ''} "
+                f"ORDER BY qoh_cost DESC LIMIT 50"
+            )
+            if "error" not in inv_df.columns:
+                st.dataframe(inv_df, use_container_width=True)
+            else:
+                st.warning(f"Query issue: {inv_df['error'].iloc[0]}")
+        
+        with db_tab3:
+            ship_df = execute_query(
+                f"SELECT region, shipping_org, wms_shipment_status, sku, intransit_value "
+                f"FROM workspace.governed.shipping "
+                f"{'WHERE region = ' + chr(39) + region + chr(39) if region != 'All' else ''} "
+                f"ORDER BY intransit_value DESC LIMIT 50"
+            )
+            if "error" not in ship_df.columns:
+                st.dataframe(ship_df, use_container_width=True)
+            else:
+                st.warning(f"Query issue: {ship_df['error'].iloc[0]}")
+                
+    except Exception as e:
+        st.info(f"Databricks connection unavailable: {e}. Showing demo data above.")
+
 # --- Data table + code preview (minimal, optional) ---
 with st.container(border=True):
     left, right = st.columns([1.3, 0.9], gap="large")

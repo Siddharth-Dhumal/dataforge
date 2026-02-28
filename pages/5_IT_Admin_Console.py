@@ -7,7 +7,7 @@ from ui.state import init_state
 apply_theme()
 init_state()
 
-# Full-width like other pages
+# Full-width
 st.markdown(
     """
     <style>
@@ -41,11 +41,23 @@ def now_utc() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def fetch_real_audit():
+    """Try to pull real audit data from Databricks."""
+    try:
+        from core.databricks_connect import get_audit_feed
+        df = get_audit_feed(limit=50)
+        if "error" not in df.columns and not df.empty:
+            return df.to_dict("records")
+    except Exception:
+        pass
+    return None
+
+
 masked_cols = get_masked_columns()
 
-# --- Actions (top, simple) ---
+# --- Actions (top) ---
 with st.container(border=True):
-    b1, b2, b3 = st.columns([1.0, 1.0, 1.0], gap="medium")
+    b1, b2, b3, b4 = st.columns([1.0, 1.0, 1.0, 1.0], gap="medium")
 
     with b1:
         if st.button("Seed audit", key="seed_audit", width="stretch"):
@@ -70,19 +82,52 @@ with st.container(border=True):
                     "notes": "Demo registry entry.",
                 }
             )
+            # Also register in Databricks if possible
+            try:
+                from factory.registry import register_app
+                import hashlib
+                spec = st.session_state.get("last_generated_spec") or {}
+                code = st.session_state.get("last_generated_code") or ""
+                register_app(
+                    app_id=f"app_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                    creator_role="analyst",
+                    spec_json=str(spec),
+                    code_hash=hashlib.sha256(code.encode()).hexdigest()[:12],
+                )
+            except Exception:
+                pass
             st.success("Registered.")
             st.rerun()
 
     with b3:
+        if st.button("🔄 Fetch Live Audit", key="fetch_live_audit", width="stretch"):
+            real_audit = fetch_real_audit()
+            if real_audit:
+                st.session_state.databricks_audit = real_audit
+                st.success(f"Fetched {len(real_audit)} audit records from Databricks.")
+            else:
+                st.warning("Could not fetch live audit data. Using local events.")
+            st.rerun()
+    
+    with b4:
         if st.button("Clear", key="clear_console", width="stretch"):
             st.session_state.audit_events = []
             st.session_state.app_registry = []
+            if "databricks_audit" in st.session_state:
+                del st.session_state.databricks_audit
             st.success("Cleared.")
             st.rerun()
 
-# --- Audit (primary) ---
+# --- Databricks Live Audit (if fetched) ---
+if st.session_state.get("databricks_audit"):
+    with st.container(border=True):
+        st.subheader("🔴 Live Databricks Audit Log")
+        st.caption("Real-time data from `workspace.audit.query_log`")
+        st.dataframe(st.session_state.databricks_audit, width="stretch")
+
+# --- Local Audit ---
 with st.container(border=True):
-    st.subheader("Audit")
+    st.subheader("Audit (Session)")
 
     f1, f2, f3 = st.columns([1.0, 1.0, 1.2], gap="medium")
     with f1:
@@ -106,23 +151,22 @@ with st.container(border=True):
             continue
         filtered.append(ev)
 
-    # Always render a dataframe so tests are stable
     if filtered:
         st.dataframe(filtered, width="stretch")
     else:
         st.dataframe([{"ts": "", "event": "", "status": "", "note": ""}], width="stretch")
 
-# --- Governance + Registry (secondary) ---
+# --- Governance ---
 with st.container(border=True):
     st.subheader("Governance")
-
     st.caption(f"Masked columns: {', '.join(masked_cols) if masked_cols else '—'}")
     st.caption(f"Safe mode: {'ON' if st.session_state.safe_mode else 'OFF'}")
-    st.caption("Query mode: SELECT-only • LIMIT enforced")
+    st.caption("Query mode: SELECT-only • LIMIT enforced • governed views only")
+    st.caption("PII column: `regional_manager` (masked via Unity Catalog)")
 
+# --- Registry ---
 with st.container(border=True):
     st.subheader("Registry")
-
     if st.session_state.app_registry:
         st.dataframe(st.session_state.app_registry, width="stretch")
     else:

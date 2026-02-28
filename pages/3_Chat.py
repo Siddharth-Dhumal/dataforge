@@ -9,7 +9,7 @@ from ui.components import ai_briefing
 apply_theme()
 init_state()
 
-# Full-width like Factory/Dashboard (Chat-only)
+# Full-width
 st.markdown(
     """
     <style>
@@ -26,32 +26,32 @@ st.markdown(
 st.title("Chat")
 st.caption("Governed Q&A (SELECT-only • LIMIT • masked)")
 
-# --- Demo Fallback Buttons (Mandatory) ---
+# --- Suggested Queries (match real tables) ---
 with st.container(border=False):
     st.markdown("<div class='df-subtitle' style='margin-bottom: 8px;'>Suggested Queries</div>", unsafe_allow_html=True)
     b1, b2, b3 = st.columns(3)
     
-    # We use session state to catch button clicks and feed them to the chat
     if "force_chat_prompt" not in st.session_state:
         st.session_state.force_chat_prompt = None
 
-    if b1.button("🌍 Revenue by region", use_container_width=True):
-        st.session_state.force_chat_prompt = "Revenue by region last 30 days"
-    if b2.button("📦 Top product lines", use_container_width=True):
-        st.session_state.force_chat_prompt = "Top product lines by revenue"
-    if b3.button("📈 Revenue trend", use_container_width=True):
-        st.session_state.force_chat_prompt = "Revenue trend over time"
+    if b1.button("🌍 Orders by region", use_container_width=True):
+        st.session_state.force_chat_prompt = "Orders by region"
+    if b2.button("📦 Inventory levels", use_container_width=True):
+        st.session_state.force_chat_prompt = "Show inventory stock levels by SKU"
+    if b3.button("🚚 Shipping status", use_container_width=True):
+        st.session_state.force_chat_prompt = "Shipping status by region"
 
-# --- Output area (like ChatGPT conversation) ---
+# --- Output area ---
 with st.container(border=True):
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            # Show the holographic card if it's the assistant
+            if msg["role"] == "assistant" and msg.get("preview_rows"):
+                st.dataframe(msg["preview_rows"], use_container_width=True)
             if msg["role"] == "assistant":
-                ai_briefing("AI Insight: Revenue is trending upward by 14% driven primarily by Widget sales in the West region.")
+                ai_briefing("AI Insight: Data sourced from governed views with PII masking and query guardrails enforced.")
 
-# --- Details (minimal, judge-useful) ---
+# --- Details ---
 with st.container(border=True):
     left, right = st.columns([1.0, 1.0], gap="large")
 
@@ -60,7 +60,6 @@ with st.container(border=True):
         st.toggle("Show SQL", key="chat_show_sql")
 
     with right:
-        # Keep it short: only show policy note when present
         if st.session_state.last_chat_policy_note:
             st.success(st.session_state.last_chat_policy_note)
 
@@ -71,17 +70,15 @@ with st.container(border=True):
             st.caption("Audit (latest)")
             st.table(st.session_state.audit_events[-3:])
 
-# --- Composer (bottom input, like ChatGPT) ---
+# --- Composer ---
 user_typed = st.chat_input(
-    "Ask about revenue, orders, regions, product lines, trends…",
+    "Ask about orders, inventory, shipping, regions…",
     key="chat_input",
 )
 
-# Accept either a typed prompt or a clicked button prompt
 prompt = user_typed or st.session_state.force_chat_prompt
 
 if prompt:
-    # Immediately clear the forced prompt so it doesn't loop
     st.session_state.force_chat_prompt = None 
     
     st.session_state.chat_history.append({"role": "user", "content": prompt})
@@ -97,8 +94,13 @@ if prompt:
 
     st.session_state.last_chat_sql = result.sql
     st.session_state.last_chat_policy_note = result.policy_note
-    st.session_state.chat_history.append({"role": "assistant", "content": result.assistant_text})
+    st.session_state.chat_history.append({
+        "role": "assistant",
+        "content": result.assistant_text,
+        "preview_rows": result.preview_rows,
+    })
 
+    # Log to audit
     st.session_state.audit_events.append(
         {
             "ts": datetime.now(timezone.utc).isoformat(),
@@ -108,5 +110,16 @@ if prompt:
         }
     )
 
-    # Make the new assistant message appear immediately at the top
+    # Also write to Databricks audit log if not demo mode
+    if not st.session_state.demo_mode and result.can_answer:
+        try:
+            from core.databricks_connect import log_query
+            log_query({
+                "user_role": "analyst",
+                "generated_sql": result.sql,
+                "status": "allowed",
+            })
+        except Exception:
+            pass  # Don't crash if audit logging fails
+
     st.rerun()
