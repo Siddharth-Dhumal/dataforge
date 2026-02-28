@@ -15,3 +15,7 @@ venv.bak/
 
 # Streamlit
 .streamlit/
+
+
+#Demo
+docs/demo_scripts.md
