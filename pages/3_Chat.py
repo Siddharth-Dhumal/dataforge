@@ -66,13 +66,35 @@ with st.container(border=False):
     if b3.button("🚚 Shipping status", use_container_width=True):
         st.session_state.force_chat_prompt = "Shipping status by region"
 
-# --- Chat History ---
-with st.container(border=True):
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+# --- Sidebar: Settings & Policy ---
+with st.sidebar:
+    st.markdown(
+        """
+        <div class="df-card" style="padding: 14px; margin-bottom: 20px; border-left: 4px solid #10b981; background: rgba(16, 185, 129, 0.05);">
+          <div style="font-size: 11px; font-weight: bold; letter-spacing: 1.2px; color: #10b981; text-transform: uppercase; margin-bottom: 4px;">
+            🛡️ Governance
+          </div>
+          <div class="df-title" style="font-size: 18px;">Chat Settings</div>
+        </div>
+        """, unsafe_allow_html=True
+    )
+    st.slider("Analyze Data From (Days)", 7, 90, key="chat_days")
+    
+    st.markdown("---")
+    if st.session_state.last_chat_policy_note:
+        st.success(st.session_state.last_chat_policy_note)
+        
+    if st.session_state.audit_events:
+        st.caption("Recent Audit Logs")
+        st.dataframe(pd.DataFrame(st.session_state.audit_events[-3:]), use_container_width=True)
 
-            if msg["role"] == "assistant" and msg.get("preview_rows"):
+# --- Chat History ---
+for i, msg in enumerate(st.session_state.chat_history):
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+        if msg["role"] == "assistant":
+            if msg.get("preview_rows"):
                 rows = msg["preview_rows"]
                 df = pd.DataFrame(rows)
 
@@ -104,7 +126,7 @@ with st.container(border=True):
                             margin=dict(l=20, r=20, t=40, b=20),
                             height=350,
                         )
-                        st.plotly_chart(fig, use_container_width=True, key=f"chart_{id(msg)}")
+                        st.plotly_chart(fig, use_container_width=True, key=f"chart_bar_{i}")
                     elif num_cols:
                         # Numeric-only: show a simple bar of values
                         fig = px.bar(
@@ -120,56 +142,44 @@ with st.container(border=True):
                             margin=dict(l=20, r=20, t=40, b=20),
                             height=300,
                         )
-                        st.plotly_chart(fig, use_container_width=True, key=f"chart_{id(msg)}")
+                        st.plotly_chart(fig, use_container_width=True, key=f"chart_num_{i}")
 
                 # ── Data table ──
                 st.dataframe(df, use_container_width=True, height=250)
 
-                # ── "Query auto-corrected" badge (stretch goal per masterplan) ──
-                if msg.get("healed"):
-                    st.markdown(
-                        '<div class="heal-badge">🩹 Query auto-corrected by self-healing agent — '
-                        'see diff in IT Admin Console</div>',
-                        unsafe_allow_html=True,
-                    )
+            # ── "Query auto-corrected" badge (stretch goal per masterplan) ──
+            if msg.get("healed"):
+                st.markdown(
+                    '<div class="heal-badge">🩹 Query auto-corrected by self-healing agent — '
+                    'see diff in IT Admin Console</div>',
+                    unsafe_allow_html=True,
+                )
 
-                # ── "Show SQL" expander (masterplan: per-message expander) ──
-                if msg.get("sql"):
-                    with st.expander("🔍 Show SQL"):
-                        st.code(msg["sql"], language="sql")
+            # ── "Show SQL" expander (masterplan: per-message expander) ──
+            if msg.get("sql"):
+                with st.expander("🔍 Show SQL"):
+                    st.code(msg["sql"], language="sql")
 
-                    # Show diff if self-healed
-                    if msg.get("heal_diff"):
-                        with st.expander("🩹 Self-Heal Diff"):
-                            st.code(msg["heal_diff"], language="diff")
+                # Show diff if self-healed
+                if msg.get("heal_diff"):
+                    with st.expander("🩹 Self-Heal Diff"):
+                        st.code(msg["heal_diff"], language="diff")
 
-                # ── AI Briefing card (masterplan: Agent 3 insight) ──
-                insight = msg.get("insight", "")
-                if insight:
-                    ai_briefing(f"🧠 {insight}")
-                else:
-                    row_count = len(rows)
-                    first_row = rows[0] if rows else {}
-                    cols = ", ".join(first_row.keys()) if first_row else "N/A"
-                    ai_briefing(
-                        f"📊 Returned {row_count} rows from governed views. "
-                        f"Columns: {cols}. PII masked, SELECT-only enforced."
-                    )
+            # ── AI Briefing card (masterplan: Agent 3 insight) ──
+            insight = msg.get("insight", "")
+            if insight:
+                ai_briefing(f"🧠 {insight}")
+            elif msg.get("preview_rows") is not None:
+                rows = msg.get("preview_rows", [])
+                row_count = len(rows)
+                first_row = rows[0] if rows else {}
+                cols = ", ".join(first_row.keys()) if first_row else "N/A"
+                ai_briefing(
+                    f"📊 Returned {row_count} rows from governed views. "
+                    f"Columns: {cols}. PII masked, SELECT-only enforced."
+                )
 
-# --- Policy & Source Info ---
-with st.container(border=True):
-    left, right = st.columns([1.0, 1.0], gap="large")
 
-    with left:
-        st.slider("Days", 7, 90, key="chat_days")
-
-    with right:
-        if st.session_state.last_chat_policy_note:
-            st.success(st.session_state.last_chat_policy_note)
-
-        if st.session_state.audit_events:
-            st.caption("Audit (latest)")
-            st.table(st.session_state.audit_events[-3:])
 
 # --- Composer ---
 user_typed = st.chat_input(
