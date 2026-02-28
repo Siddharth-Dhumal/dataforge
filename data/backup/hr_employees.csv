@@ -1,0 +1,4 @@
+employee_id,name,email,salary,region
+1,Alice,alice@example.com,70000,West
+2,Bob,bob@example.com,85000,East
+3,Charlie,charlie@example.com,60000,West

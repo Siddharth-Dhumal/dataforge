@@ -1,0 +1,4 @@
+shipment_id,origin,destination,status,region
+501,NY,CA,In Transit,East
+502,TX,FL,Delivered,East
+503,WA,OR,Delayed,West

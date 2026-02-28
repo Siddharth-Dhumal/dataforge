@@ -1,0 +1,4 @@
+transaction_id,date,store_id,amount,region
+101,2026-02-27,S1,150.00,West
+102,2026-02-28,S2,200.00,East
+103,2026-02-28,S1,50.00,West
