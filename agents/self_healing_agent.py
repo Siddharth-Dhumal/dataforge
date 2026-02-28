@@ -28,22 +28,11 @@ from __future__ import annotations
 import os
 import logging
 from decimal import Decimal
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 1  # NEVER change this constant during the hackathon
-
-
-def _ensure_env():
-    """Load .env if DATABRICKS_HOST not already set."""
-    if not os.environ.get("DATABRICKS_HOST"):
-        try:
-            from dotenv import load_dotenv
-            load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
-        except Exception:
-            pass
 
 
 def _clean_value(v):
@@ -57,7 +46,13 @@ def execute_sql(sql: str) -> Tuple[bool, List[Dict], str]:
     Returns (success, rows, error_message).
     All exceptions caught — nothing propagates to the UI.
     """
-    _ensure_env()
+    # Ensure env is loaded (idempotent)
+    try:
+        from core.env_loader import load_env
+        load_env()
+    except Exception:
+        pass
+
     host = os.environ.get("DATABRICKS_HOST", "")
     http_path = os.environ.get("DATABRICKS_HTTP_PATH", "")
     token = os.environ.get("DATABRICKS_TOKEN", "")

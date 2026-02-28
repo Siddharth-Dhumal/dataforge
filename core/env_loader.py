@@ -10,10 +10,8 @@ This module MUST be imported before any other module that uses os.getenv()
 for DATABRICKS_* or ANTHROPIC_API_KEY.
 """
 import os
-import logging
+import sys
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
 
 _LOADED = False
 SECRET_SCOPE = "dataforge-secrets"
@@ -27,13 +25,18 @@ _SECRET_MAP = {
 }
 
 
+def _log(msg: str):
+    """Print to stderr so it shows in Databricks app logs."""
+    print(f"[env_loader] {msg}", file=sys.stderr, flush=True)
+
+
 def load_env():
     """
-    Bootstrap environment variables.
+    Bootstrap environment variables. Safe to call multiple times.
     
     Strategy:
-      1. If running on Databricks Apps → read secrets from scope via SDK
-      2. If running locally → read from .env file
+      1. If .env file exists → read from it (local development)
+      2. If running on Databricks Apps → read secrets from scope via SDK
       3. Skip any variable that's already set in the environment
     """
     global _LOADED
@@ -41,7 +44,7 @@ def load_env():
         return
     _LOADED = True
 
-    # --- Attempt 1: Load from .env (local development) ---
+    # --- Step 1: Load from .env file (local development) ---
     env_path = Path(__file__).resolve().parent.parent / ".env"
     if env_path.exists():
         try:
@@ -52,15 +55,16 @@ def load_env():
                     k, v = k.strip(), v.strip()
                     if k and v and k not in os.environ:
                         os.environ[k] = v
-            logger.info("[env_loader] Loaded .env file")
+            _log("Loaded .env file")
         except Exception as e:
-            logger.warning(f"[env_loader] Failed to read .env: {e}")
+            _log(f"Failed to read .env: {e}")
 
-    # --- Attempt 2: Read from Databricks secret scope (deployed environment) ---
-    # Only try if some vars are still missing
+    # --- Step 2: Read from Databricks secret scope ---
     missing = [k for k in _SECRET_MAP if not os.environ.get(k)]
     if missing:
+        _log(f"Missing env vars: {missing} — trying Databricks secret scope...")
         try:
+            import base64
             from databricks.sdk import WorkspaceClient
             w = WorkspaceClient()
             for env_key in missing:
@@ -68,16 +72,34 @@ def load_env():
                 try:
                     resp = w.secrets.get_secret(scope=SECRET_SCOPE, key=secret_key)
                     if resp and resp.value:
-                        # SDK returns bytes, decode to string
-                        val = resp.value if isinstance(resp.value, str) else resp.value.decode("utf-8")
+                        raw = resp.value
+                        # SDK returns base64-encoded string — decode it
+                        if isinstance(raw, bytes):
+                            raw = raw.decode("utf-8")
+                        try:
+                            val = base64.b64decode(raw).decode("utf-8")
+                        except Exception:
+                            # If base64 decode fails, use raw value
+                            val = raw
                         os.environ[env_key] = val
-                        logger.info(f"[env_loader] Loaded {env_key} from secret scope")
+                        _log(f"Loaded {env_key} from scope ({len(val)} chars)")
                 except Exception as e:
-                    logger.debug(f"[env_loader] Could not read secret {secret_key}: {e}")
+                    _log(f"Could not read secret '{secret_key}': {e}")
         except Exception as e:
-            logger.debug(f"[env_loader] Databricks SDK not available: {e}")
+            _log(f"Databricks SDK unavailable: {e}")
+
+    # --- Step 3: Try dotenv as last resort ---
+    still_missing = [k for k in _SECRET_MAP if not os.environ.get(k)]
+    if still_missing:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(dotenv_path=env_path, override=False)
+            _log("Tried dotenv as fallback")
+        except Exception:
+            pass
 
     # --- Summary ---
     for k in _SECRET_MAP:
-        status = "✅" if os.environ.get(k) else "❌"
-        logger.info(f"[env_loader] {k}: {status}")
+        val = os.environ.get(k, "")
+        status = f"✅ ({len(val)} chars)" if val else "❌ MISSING"
+        _log(f"{k}: {status}")

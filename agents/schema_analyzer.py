@@ -12,9 +12,7 @@ then passes it to Claude via call_claude() with the suggest_apps tool.
 """
 from __future__ import annotations
 
-import os
 import logging
-from pathlib import Path
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -82,14 +80,6 @@ COLUMNS: wms_shipment_nbr (string), wms_shipment_status (string),
 """
 
 
-def _ensure_env():
-    """Load .env if ANTHROPIC_API_KEY not already set."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            from dotenv import load_dotenv
-            load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
-        except Exception:
-            pass
 
 
 def _get_live_schema() -> str:
@@ -126,7 +116,12 @@ def analyze_schema() -> Dict:
 
     Each suggestion dict has: title, description, tables, kpis, factory_prompt.
     """
-    _ensure_env()
+    # Ensure env is loaded (idempotent)
+    try:
+        from core.env_loader import load_env
+        load_env()
+    except Exception:
+        pass
 
     try:
         from utils.llm import call_claude
