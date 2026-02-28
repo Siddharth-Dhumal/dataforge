@@ -1,12 +1,9 @@
 import os
 import pandas as pd
 from databricks import sql
-from dotenv import load_dotenv
 from datetime import datetime
 import streamlit as st
 from utils.query_validator import validate_query
-
-load_dotenv()
 
 def get_db_connection():
     return sql.connect(

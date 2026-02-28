@@ -1,3 +1,7 @@
+# Bootstrap environment FIRST (reads .env locally, Databricks secrets when deployed)
+from core.env_loader import load_env
+load_env()
+
 import streamlit as st
 from ui.theme import apply_theme
 from ui.state import init_state

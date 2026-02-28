@@ -1,10 +1,1 @@
 command: ["streamlit", "run", "app.py", "--server.port", "8000", "--server.headless", "true"]
-env:
-  - name: ANTHROPIC_API_KEY
-    valueFrom: anthropic-api-key
-  - name: DATABRICKS_HOST
-    valueFrom: databricks-host
-  - name: DATABRICKS_HTTP_PATH
-    valueFrom: databricks-http-path
-  - name: DATABRICKS_TOKEN
-    valueFrom: databricks-token
