@@ -1,6 +1,6 @@
 from agents.sql_generator import generate_sql_query_dbcs
-from utils.query_validator import validate_query
-from utils.llm import call_claude
+from utils.query_validator import is_query_valid
+from utils.llm import call_claude_text as call_claude
 import os
 from databricks import sql
 import re
@@ -114,7 +114,7 @@ def generate_safe_sql(prompt: str, catalog_name: str, schema_name: str) -> dict:
     #print(f"--- DBCS OUTPUT ---\n{sql_candidate}")
 
     # 3. Validate
-    if validate_query(sql_candidate):
+    if is_query_valid(sql_candidate):
         result["sql"] = sql_candidate
         result["valid"] = True
         result["source"] = "databricks_ai"
@@ -149,7 +149,7 @@ def generate_safe_sql(prompt: str, catalog_name: str, schema_name: str) -> dict:
         # result["debug_trace"][f"claude_attempt_{attempt+1}_output"] = sql_candidate
         # print(f"--- CLAUDE OUTPUT (Attempt {attempt+1}) ---\n{sql_candidate}")
 
-        if validate_query(sql_candidate):
+        if is_query_valid(sql_candidate):
             result["sql"] = sql_candidate
             result["valid"] = True
             result["source"] = "claude_fallback"

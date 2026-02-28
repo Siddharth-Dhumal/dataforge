@@ -1,0 +1,21 @@
+{% extends "base_template.py.jinja" %}
+
+{% block content %}
+    st.markdown("### Ask questions about {{ tables | join(', ') }}")
+    
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+        
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            
+    if prompt := st.chat_input("Ask a question..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+            
+        with st.chat_message("assistant"):
+            st.markdown("I am a generated chatbot. I need the AI backend to answer this.")
+            st.session_state.messages.append({"role": "assistant", "content": "I am a generated chatbot. I need the AI backend to answer this."})
+{% endblock %}

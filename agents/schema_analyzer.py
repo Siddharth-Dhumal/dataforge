@@ -1,5 +1,5 @@
 from agents.self_healing_agent import get_database_schema_context
-from utils.llm import call_claude
+from utils.llm import call_claude_text as call_claude
 
 
 def analyze_schema_and_suggest(catalog_name: str, schema_name: str) -> dict:

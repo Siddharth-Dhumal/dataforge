@@ -51,3 +51,15 @@ def validate_query(sql: str) -> str:
         sql = sql.rstrip("; \t\n\r") + f" LIMIT {max_rows}"
 
     return sql
+
+
+def is_query_valid(sql: str) -> bool:
+    """
+    Bool wrapper around validate_query for agents that just need a pass/fail check.
+    Returns True if the query passes all guardrail checks, False otherwise.
+    """
+    try:
+        validate_query(sql)
+        return True
+    except (ValidationError, Exception):
+        return False

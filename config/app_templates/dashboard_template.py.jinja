@@ -1,0 +1,18 @@
+{% extends "base_template.py.jinja" %}
+
+{% block content %}
+    st.sidebar.header("Filters")
+    {% for filter in filters %}
+    {{ filter }}_filter = st.sidebar.multiselect("Select {{ filter | title }}", [])
+    {% endfor %}
+
+    st.subheader("Key Performance Indicators")
+    render_kpis({{ kpis | tojson }})
+
+    st.subheader("Charts")
+    col1, col2 = st.columns(2)
+    {% for chart in charts %}
+    with {% if loop.index0 % 2 == 0 %}col1{% else %}col2{% endif %}:
+        st.plotly_chart(build_chart("{{ chart }}", []))
+    {% endfor %}
+{% endblock %}
